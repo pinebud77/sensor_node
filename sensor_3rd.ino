@@ -5,6 +5,7 @@
 #include <SPI.h>
 #include <sha1.h>
 #include <DHT.h>
+#include <avr/pgmspace.h>
 
 #define DHTPIN 7
 #define DHTTYPE DHT11
@@ -27,8 +28,12 @@ Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 #define WLAN_PASSWD "xnvkdlqm"
 #define WLAN_SECURITY   WLAN_SEC_WPA2
 
-#define SERVER_NAME "galvanic-cirrus-841.appspot.com"
-char dictString[] = "0123456789abcdef";
+char server[] PROGMEM = "galvanic-cirrus-841.appspot.com";
+char dictString[] PROGMEM = "0123456789abcdef";
+char msgHeaderFmt[] PROGMEM = "secure_key=%s&mac_address=%s";
+char postFmt[] PROGMEM = "%s&type=%d&value=%d&rssi=%d";
+char inputUrl[] PROGMEM = "/sensor/input/";
+char contStr[] PROGMEM = "Content-Type: application/x-www-form-urlencoded";
 
 int sensor_check_interval = 60;
 int sensor_report_interval = 600;
@@ -101,7 +106,7 @@ int buildMsgHeader() {
   buildMacEncString(mac, macEncString);
   buildSecureKey(macString, secureKey);
   
-  sprintf(msgHeader, "secure_key=%s&mac_address=%s", secureKey, macEncString);
+  sprintf(msgHeader, msgHeaderFmt, secureKey, macEncString);
   
   return 0;
 }
@@ -149,7 +154,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData)
 {
   int ret;
   
-  Serial.print(F("connecting to the server... : "));  
+  Serial.print(F("connecting server.."));  
   www.connect(domainBuffer, thisPort);
     
   if(www.connected())
@@ -163,7 +168,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData)
     sprintf(outBuf,"Host: %s",domainBuffer);
     www.println(outBuf);
     www.println(F("Connection: close"));
-    www.println(F("Content-Type: application/x-www-form-urlencoded"));
+    www.println(contStr);
     sprintf(outBuf,"Content-Length: %u\r\n",strlen(thisData));
     www.println(outBuf);   
     
@@ -209,8 +214,8 @@ int report_data(int sensor_type, float value) {
     connectAp();
   }
   
-  sprintf(postData, "%s&type=%d&value=%d&rssi=%d", msgHeader, sensor_type, (int)value*10, rssi);
-  return ! postPage(SERVER_NAME, 80, "/sensor/input/", postData);
+  sprintf(postData, postFmt, msgHeader, sensor_type, (int)value*10, rssi);
+  return ! postPage(server, 80, inputUrl, postData);
 }
 
 unsigned long getReportPeriod() {
@@ -277,14 +282,10 @@ void loop() {
     } 
 
     if (!report_data(0, temperature)) {
-      Serial.println("data reported");
-    } else {
-      Serial.println("data failed");
+      Serial.println("reported");
     }
     if (!report_data(1, humidity)) {
       Serial.println("data reported");
-    } else {
-      Serial.println("data failed");
     }
   }  
 }

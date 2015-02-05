@@ -50,9 +50,10 @@ int buildSecureKey(char* macString, char* secureKey) {
   hash = Sha1.result();
   
   for (i = 0; i < 20; i++) {
-    secureKey[i++] = "0123456789abcdef"[hash[i]>>4];
-    secureKey[i++] = "0123456789abcdef"[hash[i]&0xf];
-  }  
+    secureKey[i*2] = dictString[hash[i]>>4];
+    secureKey[i*2+1] = dictString[hash[i]&0xf];
+  }
+  secureKey[i*2] = '\0';
   
   return 0;
 }

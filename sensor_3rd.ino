@@ -24,46 +24,29 @@ Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 
 #define IDLE_TIMEOUT_MS  10000
 
-#define WLAN_SSID "leekwon2G"
-#define WLAN_PASSWD "xnvkdlqm"
+char ssid[] = "leekwon2G";
+char passwd[] = "xnvkdlqm";
 #define WLAN_SECURITY   WLAN_SEC_WPA2
 
-char server[] PROGMEM = "galvanic-cirrus-841.appspot.com";
-char dictString[] PROGMEM = "0123456789abcdef";
-char msgHeaderFmt[] PROGMEM = "secure_key=%s&mac_address=%s";
-char postFmt[] PROGMEM = "%s&type=%d&value=%d&rssi=%d";
-char thrFmt[] PROGMEM = "%s&type=%d";
-char inputUrl[] PROGMEM = "/sensor/input/";
-char settingsUrl[] PROGMEM = "/sensor/settings/";
-char ssettingsUrl[] PROGMEM = "/sensor/ssettings/";
-char contStr[] PROGMEM = "Content-Type: application/x-www-form-urlencoded";
-char owenStr[] PROGMEM = "owen77";
-char youngStr[] PROGMEM = "young";
-char apConStr[] PROGMEM = "connecting to AP..";
-char apConFailStr[] PROGMEM = "AP connection failed";
-char wireStr[] PROGMEM = "Couldn't begin()! Check your wiring?";
-char svrConStr[] PROGMEM = "connecting to server..";
-char svrCondStr[] PROGMEM = "connected";
-char postLineStr[] PROGMEM = "POST %s HTTP/1.1";
-char conCloseStr[] PROGMEM = "Connection: close";
-char conLenStr[] PROGMEM = "Content-Length: %u\r\n";
+char server[] = "galvanic-cirrus-841.appspot.com";
+char dictString[] = "0123456789abcdef";
 
 int sensor_check_interval = 60;
 int sensor_report_interval = 600;
 
 char msgHeader[100];
 
-char outBuf[100];
-char postData[150];
+char outBuf[70];
+char postData[130];
 
 int buildSecureKey(char* macString, char* secureKey) {
   uint8_t* hash;
   int i;
   
   Sha1.init();
-  Sha1.print(owenStr);
+  Sha1.print("owen77");
   Sha1.print(macString);
-  Sha1.print(youngStr);
+  Sha1.print("young");
   
   hash = Sha1.result();
   
@@ -71,7 +54,6 @@ int buildSecureKey(char* macString, char* secureKey) {
     secureKey[i*2] = dictString[hash[i]>>4];
     secureKey[i*2+1] = dictString[hash[i]&0xf];
   }
-  secureKey[i*2] = '\0';
   
   return 0;
 }
@@ -119,23 +101,23 @@ int buildMsgHeader() {
   buildMacEncString(mac, macEncString);
   buildSecureKey(macString, secureKey);
   
-  sprintf(msgHeader, msgHeaderFmt, secureKey, macEncString);
+  sprintf(msgHeader, "secure_key=%s&mac_address=%s", secureKey, macEncString);
   
   return 0;
 }
 
 void connectAp() {
   // Set up CC3000 and get connected to the wireless network.
-  Serial.println(apConStr);
+  Serial.println("connecting to AP..");
   if (!cc3000.begin())
   {
-    Serial.println(wireStr);
+    Serial.println("wiring problem?");
     while(1);
   }
   
   cc3000.setDHCP();
-  while (!cc3000.connectToAP(WLAN_SSID, WLAN_PASSWD, WLAN_SECURITY)) {
-    Serial.println(apConFailStr);
+  while (!cc3000.connectToAP(ssid, passwd, WLAN_SECURITY)) {
+    Serial.println("AP connection failed");
   }
   while (!cc3000.checkDHCP())
   {
@@ -149,7 +131,6 @@ void setup() {
   int i;
   
   Serial.begin(9600);
-  
   /*
   while (!Serial) {
     ;
@@ -165,38 +146,34 @@ void setup() {
 
 enum parseStatus {
   NONE_STATUS,
-  FIRST_PLUS,
-  FIRST_VALUE,
-  FIRST_EQUAL,
-  SECOND_PLUS,
-  SECOND_VALUE,
-  SECOND_EQUAL,
+  PLUS_STATUS,
+  VALUE_STATUS,
+  EQUAL_STATUS,
 };
 
-byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int *val1=NULL, int *val2=NULL)
+byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int val[3])
 {
-  int ret, isSigned;
+  byte ret, isSigned, valIndex;
   int * pVal;
   enum parseStatus parState = NONE_STATUS;
   
-  Serial.print(svrConStr);  
+  Serial.print("server..");  
   www.connect(domainBuffer, thisPort);
     
   if(www.connected())
   {
-    
-    Serial.println(svrCondStr);
-    
+    Serial.println("connected");
+        
     // send the header
-    sprintf(outBuf, postLineStr,page);
+    sprintf(outBuf, "POST %s HTTP/1.1", page);
     www.println(outBuf);
     sprintf(outBuf,"Host: %s",domainBuffer);
     www.println(outBuf);
-    www.println(conCloseStr);
-    www.println(contStr);
-    sprintf(outBuf, conLenStr,strlen(thisData));
+    www.println(F("Connection: close"));
+    www.println(F("Content-Type: application/x-www-form-urlencoded"));
+    sprintf(outBuf, "Content-Length: %u\r\n", strlen(thisData));
     www.println(outBuf);   
-    
+        
     int dataLen = strlen(thisData);
     char * pos = thisData;
     do {
@@ -217,6 +194,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   int connectLoop = 0;
 
   unsigned long lastRead = millis();
+  valIndex = 0;
   while (www.connected() && (millis() - lastRead < IDLE_TIMEOUT_MS)) {
     while (www.available()) {
       char c = www.read();
@@ -225,34 +203,25 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       
       if (c == '+') {
         isSigned = 0;
-        if (parState == NONE_STATUS) {
-          parState = FIRST_PLUS;
-          pVal = val1;
-        } else if (parState == FIRST_EQUAL) {
-          parState = SECOND_PLUS;
-          pVal = val2;
-        }
-      }
-      if (parState == FIRST_VALUE || parState == SECOND_VALUE) {
+        parState = VALUE_STATUS;
+        pVal = &val[valIndex++];
+        *pVal = 0;
+      } else if (parState == VALUE_STATUS) {
         if (c == '-') {
           isSigned = 1;
-        } if (c == 'n' && parState == FIRST_VALUE) {
-          *pVal = -1000;
-          parState = FIRST_EQUAL;
-        } if (c == 'n' && parState == SECOND_VALUE) {
-          *pVal = 1000;
-          parState = SECOND_EQUAL;
-        }else if (c == '=' && parState == FIRST_VALUE) {
-          if (isSigned) *pVal = - *pVal;
-          parState = FIRST_EQUAL;
-        } else if (c == '=' && parState == SECOND_VALUE) {
-          if (isSigned) *pVal = - *pVal;
-          parState = SECOND_EQUAL;
-        } else {
-          *pVal *= 10;
-          *pVal += c - '0';
+        } else if (c == 'n') {
+          *pVal = 9999;
+          parState = EQUAL_STATUS;
+        } else if (c == '=') {
+         if (isSigned) *pVal = - *pVal;
+         parState = EQUAL_STATUS;
+        } else if (c == '.') {
+          parState = EQUAL_STATUS;
+        }else {
+         *pVal *= 10;
+         *pVal += c - '0';
         }
-      }
+     } 
     }
   }
   Serial.println("");
@@ -261,37 +230,35 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   return 1;
 }
 
-int report_data(int sensor_type, float value) {
+int report_data(int sensor_type, float value, unsigned long * report_period, int* high_threshold, int* low_threshold) {
   //connect to the AP
   int i;
+  int ret;
+  int val[3] = {9999, 9999, 9999};
   int rssi = -60;
   
   if (!cc3000.checkDHCP()) {
     connectAp();
   }
   
-  sprintf(postData, postFmt, msgHeader, sensor_type, (int)value*10, rssi);
-  return ! postPage(server, 80, inputUrl, postData);
-}
-
-unsigned long getReportPeriod() {
-  int val;
+  sprintf(postData, "%s&type=%d&value=%d&rssi=%d", msgHeader, sensor_type, (int)(value*10), rssi);
+  ret = !postPage(server, 80, "/sensor/input/", postData, val);
   
-  if (!cc3000.checkDHCP()) {
-    connectAp();
-  }  
-  postPage(server, 80, settingsUrl, msgHeader, &val);
+  if (val[0] == 9999)
+    return -1;
+  *report_period = val[0];
+  *high_threshold = val[1];
+  *low_threshold = val[2];
+  if (*high_threshold == 9999) *high_threshold = 1000;
+  if (*low_threshold == 9999) *low_threshold = -1000;
   
-  return (unsigned long) val;
-}
-
-int getThreshold(int type, int * high, int * low) {
-  if (!cc3000.checkDHCP()) {
-    connectAp();
-  }
-  sprintf(postData, thrFmt, msgHeader, type);
+  Serial.println("cfg from server");
+  Serial.println(sensor_type);
+  Serial.println(*report_period);
+  Serial.println(*high_threshold);
+  Serial.println(*low_threshold);
   
-  return !postPage(server, 80, ssettingsUrl, postData, low, high);;
+  return ret;
 }
 
 int outRange(float value, int low, int high)
@@ -315,25 +282,24 @@ void loop() {
   float temperature = dht.readTemperature();
   float humidity = dht.readHumidity();
   
-  report_data(0, temperature);
-  report_data(1, humidity);
-  
+  report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0);
+  report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1);
+    
   while(true) {
-    reportPeriod = getReportPeriod();
     if (reportPeriod < 120)
       reportPeriod = 120;
     measurePeriod = reportPeriod / 10;
     
     if (measurePeriod == 0) measurePeriod = 1;
       
-    getThreshold(0, &lowTh0, &highTh0);
-    getThreshold(1, &lowTh1, &highTh1);
-     
     for (i = 0; i < 10; i++) {
+      unsigned long last = millis();
+      
       dht.read();
       float temperature = dht.readTemperature();
       float humidity = dht.readHumidity();
       
+      Serial.println("mesaure values :");
       Serial.println(temperature);
       Serial.println(humidity);
       
@@ -346,14 +312,18 @@ void loop() {
         outRangeReported = 0;
         break;
       }
-      delay(measurePeriod * 1000);
+      last = millis() - last;
+      
+      if (last < measurePeriod * 1000)
+        delay(measurePeriod * 1000 - last);
     } 
 
-    if (!report_data(0, temperature)) {
+    if (temperature != NAN && !report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0)) {
       Serial.println("reported");
     }
-    if (!report_data(1, humidity)) {
+    if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println("reported");
     }
   }  
 }
+

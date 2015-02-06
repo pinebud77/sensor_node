@@ -1,44 +1,38 @@
 #define CC3000_TINY_DRIVER
 
-#include <EEPROM.h>
+
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
 #include <sha1.h>
 #include <DHT.h>
-#include <avr/pgmspace.h>
 
+#include <EEPROM.h>
+
+/* sensor definitions and variables */
 #define DHTPIN 7
 #define DHTTYPE DHT11
-
 DHT dht(DHTPIN, DHTTYPE);
 
-// These are the interrupt and control pins
-#define ADAFRUIT_CC3000_IRQ   3  // MUST be an interrupt pin!
-// These can be any two pins
+/* wifi definitions and variables */
+#define ADAFRUIT_CC3000_IRQ   3
 #define ADAFRUIT_CC3000_VBAT  5
 #define ADAFRUIT_CC3000_CS    10
-// Use hardware SPI for the remaining pins
-// On an UNO, SCK = 13, MISO = 12, and MOSI = 11
+#define IDLE_TIMEOUT_MS  5000
+
 Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT, SPI_CLOCK_DIV2);
 Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 
-#define IDLE_TIMEOUT_MS  5000
-
+/* wifi connection definitions and variables */
 #define MAX_SSID 20
 #define MAX_PASSWD 20
-
 char ssid[MAX_SSID];
 char passwd[MAX_PASSWD];
 char security;
 
 char server[] = "galvanic-cirrus-841.appspot.com";
 
-int sensor_check_interval = 60;
-int sensor_report_interval = 600;
-
 char msgHeader[100];
-
 char outBuf[70];
 char postData[130];
 
@@ -57,6 +51,7 @@ void readEeprom() {
   security = EEPROM.read(MAX_SSID + MAX_PASSWD + 1);
   
   /*
+  //debug prints
   Serial.print(F("read ssid : "));
   Serial.println(ssid);
   Serial.print(F("read passwd : "));
@@ -81,6 +76,7 @@ void writeEeprom() {
   EEPROM.write(MAX_SSID + MAX_SSID + 1, security);
 }
 
+/* get the line input : the buffer should be big enough to handle \r \n \0 */
 void getLineInput(char * buffer, int len) {
   int i = 0;
   
@@ -187,7 +183,6 @@ int buildMsgHeader() {
 }
 
 int connectAp() {
-  // Set up CC3000 and get connected to the wireless network.
   Serial.print(F("connecting to AP.. "));
   Serial.println(ssid);
   if (!cc3000.begin())
@@ -197,6 +192,7 @@ int connectAp() {
   }
   
   cc3000.setDHCP();
+  
   if (!cc3000.connectToAP(ssid, passwd, security, 3)) {
     Serial.println(F("AP connection failed"));
     return -1;
@@ -205,7 +201,6 @@ int connectAp() {
   {
     delay(100);
   }
-  
   delay(500);
   
   return 0;
@@ -214,9 +209,21 @@ int connectAp() {
 void setup() {
   int i;
   int firstTrial = 1;
+  char tempInput[1];
   
   Serial.begin(9600);
   
+  /* check if user want update the input */
+  if (Serial) {
+    Serial.println(F("Press any key to update AP settings : "));
+    Serial.setTimeout(5000);
+    if (Serial.readBytes(tempInput, 1)) {
+      getInput();
+      writeEeprom();
+    }
+  }
+  
+  /* read AP connections settings */
   readEeprom();
   
   while (connectAp()) {
@@ -226,20 +233,27 @@ void setup() {
     }
     getInput();
   }
+  
+  /* save AP info if we connected by user input */
   if (!firstTrial) {
     writeEeprom();
   }
-
+  
+  /* build post message prefix from MAC string */
   buildMsgHeader();
   
+  /* initialize thermal/humidity sensor */
   dht.begin();
 }
+
+#define ERROR_VAL 9874
 
 enum parseStatus {
   NONE_STATUS,
   PLUS_STATUS,
   VALUE_STATUS,
   EQUAL_STATUS,
+  EXIT_STATUS,
 };
 
 byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int val[3])
@@ -248,7 +262,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   int * pVal;
   enum parseStatus parState = NONE_STATUS;
   
-  Serial.print(F("server.."));
+  Serial.print(F("connecting the server.."));
   www.connect(domainBuffer, thisPort);
     
   if(www.connected())
@@ -293,7 +307,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       //Serial.print(c);
       lastRead = millis();
       
-      if (c == '+') {
+      if (parState != EXIT_STATUS && c == '+') {
         isSigned = 0;
         parState = VALUE_STATUS;
         pVal = &val[valIndex++];
@@ -301,8 +315,11 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       } else if (parState == VALUE_STATUS) {
         if (c == '-') {
           isSigned = 1;
-        } else if (c == 'n') {
-          *pVal = 9999;
+        } else if (c == 'e') {
+          *pVal = ERROR_VAL;
+          parState = EXIT_STATUS;
+        }else if (c == 'n') {
+          *pVal = ERROR_VAL;
           parState = EQUAL_STATUS;
         } else if (c == '=') {
          if (isSigned) *pVal = - *pVal;
@@ -316,17 +333,17 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
      } 
     }
   }
-  Serial.println("");
+  Serial.println();
   www.close();
   
   return 1;
 }
 
+/* report data through POST and get the setting values */
 int report_data(int sensor_type, float value, unsigned long * report_period, int* high_threshold, int* low_threshold) {
-  //connect to the AP
   int i;
   int ret;
-  int val[3] = {9987, 9987, 9987};
+  int val[3] = {ERROR_VAL, ERROR_VAL, ERROR_VAL};
   int rssi = -60;
   
   if (!cc3000.checkDHCP()) {
@@ -340,15 +357,15 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
     return -1;
   }
   
-  if (val[0] == 9987) {
-    Serial.println(F("Getting period failed"));
+  if (val[0] == ERROR_VAL || val[1] == ERROR_VAL || val[2] == ERROR_VAL) {
+    Serial.println(F("Getting settings failed"));
     return -1;
   }
   *report_period = val[0];
   *high_threshold = val[1];
   *low_threshold = val[2];
-  if (*high_threshold == 9999) *high_threshold = 1000;
-  if (*low_threshold == 9999) *low_threshold = -1000;
+  if (*high_threshold == ERROR_VAL) *high_threshold = 1000;
+  if (*low_threshold == ERROR_VAL) *low_threshold = -1000;
   
   Serial.println(F("cfg"));
   Serial.println(sensor_type);
@@ -370,8 +387,7 @@ int outRange(float value, int low, int high)
 
 void loop() {
   int outRangeReported = 0;
-  int i;
-  int lowTh1, highTh1, lowTh0, highTh0;
+  int i, lowTh1, highTh1, lowTh0, highTh0;
   unsigned long reportPeriod = 600;
   unsigned long measurePeriod;
   float temperature, humidity;
@@ -381,7 +397,7 @@ void loop() {
   while(true) {
     first = millis();
     Serial.println();
-    Serial.println(first);
+    Serial.print(F("TS:")); Serial.println(first);
     
     dht.read();
     temperature = dht.readTemperature();
@@ -394,7 +410,7 @@ void loop() {
       Serial.println(F("reported"));
     }
     
-    if (reportPeriod < 120)
+    if (reportPeriod < 120UL)
       reportPeriod = 120;
     measurePeriod = reportPeriod / 10;
     
@@ -405,9 +421,9 @@ void loop() {
     for (i = 0; i < 10; i++) {
       unsigned long last = millis();
       Serial.println();
+      Serial.print(F("TS:")); Serial.println(last);
       Serial.println(F("value"));
-      Serial.println(last);
-      
+            
       dht.read();
       temperature = dht.readTemperature();
       humidity = dht.readHumidity();

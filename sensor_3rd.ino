@@ -1,11 +1,9 @@
-#define CC3000_TINY_DRIVER
-
-
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
 #include <sha1.h>
 #include <DHT.h>
+#include <avr/wdt.h>
 
 #include <EEPROM.h>
 
@@ -30,11 +28,15 @@ char ssid[MAX_SSID];
 char passwd[MAX_PASSWD];
 char security;
 
+/* web connection definitions and variables */
+#define WWW_TRIALS  2
+#define IDLE_MEASURE_COUNT 10
 char server[] = "galvanic-cirrus-841.appspot.com";
 
 char msgHeader[100];
 char outBuf[70];
 char postData[130];
+
 
 void readEeprom() {
   int i;
@@ -211,15 +213,20 @@ void setup() {
   int firstTrial = 1;
   char tempInput[1];
   
+  /* disable watchdog for now */
+  wdt_disable();
+  
   Serial.begin(9600);
   
   /* check if user want update the input */
   if (Serial) {
-    Serial.println(F("Press any key to update AP settings : "));
+    Serial.println(F("Press 'c' key to update AP settings : "));
     Serial.setTimeout(5000);
     if (Serial.readBytes(tempInput, 1)) {
-      getInput();
-      writeEeprom();
+      if (tempInput[0] == 'c') {
+        getInput();
+        writeEeprom();
+      }
     }
   }
   
@@ -258,13 +265,21 @@ enum parseStatus {
 
 byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int val[3])
 {
-  byte ret, isSigned, valIndex;
+  byte ret, isSigned, valIndex, i;
   int * pVal;
+  int status;
   enum parseStatus parState = NONE_STATUS;
   
-  Serial.print(F("connecting the server.."));
-  www.connect(domainBuffer, thisPort);
-    
+  for (i = 0; i < WWW_TRIALS; i++) {
+    Serial.print(F("connecting the server.."));
+    wdt_reset();
+    www.close();
+    status = www.connect(domainBuffer, thisPort);
+    wdt_reset();
+    if (www.connected())
+      break;
+  }
+      
   if(www.connected())
   {
     Serial.println(F("connected"));
@@ -291,10 +306,12 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   else
   {
     Serial.print(F("failed"));
+    Serial.println(status);
     return 0;
   }
   
-  Serial.println(F("written"));
+  Serial.println(F("posted"));
+  wdt_reset();
 
   int connectLoop = 0;
 
@@ -333,31 +350,36 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
      } 
     }
   }
-  Serial.println();
   www.close();
+  Serial.println("read");  
+  wdt_reset();
   
   return 1;
 }
 
 /* report data through POST and get the setting values */
 int report_data(int sensor_type, float value, unsigned long * report_period, int* high_threshold, int* low_threshold) {
-  int i;
+  int wifiStatus;
   int ret;
   int val[3] = {ERROR_VAL, ERROR_VAL, ERROR_VAL};
   int rssi = -60;
-  
-  if (!cc3000.checkDHCP()) {
+   
+  wifiStatus = cc3000.getStatus();
+  if (wifiStatus != STATUS_CONNECTED) {
+    Serial.println(F("disconnected"));
+    wdt_disable();
     connectAp();
+    wdt_enable(WDTO_8S);
   }
   
-  sprintf(postData, "%s&type=%d&value=%d&rssi=%d", msgHeader, sensor_type, (int)(value*10), rssi);
+  sprintf(postData, "%s&type=%d&value=%d&rssi=%d", msgHeader, sensor_type, (int)(value*10.0), rssi);
   ret = !postPage(server, 80, "/sensor/input/", postData, val);
   
   if (ret) {
     return -1;
   }
   
-  if (val[0] == ERROR_VAL || val[1] == ERROR_VAL || val[2] == ERROR_VAL) {
+  if (val[0] == ERROR_VAL) {
     Serial.println(F("Getting settings failed"));
     return -1;
   }
@@ -387,12 +409,16 @@ int outRange(float value, int low, int high)
 
 void loop() {
   int outRangeReported = 0;
-  int i, lowTh1, highTh1, lowTh0, highTh0;
+  int lowTh1, highTh1, lowTh0, highTh0;
+  byte i, loop_count = IDLE_MEASURE_COUNT;
   unsigned long reportPeriod = 600;
   unsigned long measurePeriod;
   float temperature, humidity;
   int value;
-  unsigned long first;
+  unsigned long first, last, target;
+  
+  /* start Watch dog. */
+  wdt_enable(WDTO_8S);
   
   while(true) {
     first = millis();
@@ -403,23 +429,33 @@ void loop() {
     temperature = dht.readTemperature();
     humidity = dht.readHumidity();
 
+    wdt_reset();
+    loop_count = IDLE_MEASURE_COUNT;
     if (temperature != NAN && !report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0)) {
       Serial.println(F("reported"));
+    } else {
+      Serial.println(F("adjust loop count"));
+      loop_count = 1;
     }
+    wdt_reset();
     if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println(F("reported"));
+    } else {
+      Serial.println(F("adjust loop count"));
+      loop_count = 1;
     }
+    wdt_reset();
     
     if (reportPeriod < 120UL)
       reportPeriod = 120;
-    measurePeriod = reportPeriod / 10;
+    measurePeriod = reportPeriod / (unsigned long) IDLE_MEASURE_COUNT;
     
     if (measurePeriod == 0) measurePeriod = 1;
     
     first = millis() - first;
       
-    for (i = 0; i < 10; i++) {
-      unsigned long last = millis();
+    for (i = 0; i < loop_count; i++) {
+      last = millis();
       Serial.println();
       Serial.print(F("TS:")); Serial.println(last);
       Serial.println(F("value"));
@@ -441,11 +477,15 @@ void loop() {
         break;
       }
       last = millis() - last;
-      Serial.print(F("first=")); Serial.println(first);
-      Serial.print(F("last=")); Serial.println(last);
-      Serial.print(F("measurePeriod*1000UL=")); Serial.println(measurePeriod*1000UL);
       if (last + first < (measurePeriod * 1000UL)){
-        delay((measurePeriod*1000UL) - last - first);
+        target = (measurePeriod*1000UL) - last - first;
+        do {
+          wdt_reset();
+          target -= 4000UL;
+          delay(4000UL);
+          //Serial.println(target);
+        } while (target >= 4000UL); 
+        delay(target);        
       }
       first = 0;
     }

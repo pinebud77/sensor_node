@@ -1,3 +1,5 @@
+#define CC3000_TINY_DRIVER 1
+
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
@@ -35,7 +37,8 @@ char server[] = "galvanic-cirrus-841.appspot.com";
 
 char msgHeader[100];
 char outBuf[70];
-char postData[130];
+char postData[140];
+int firstReport = 1;
 
 
 void readEeprom() {
@@ -246,11 +249,14 @@ void setup() {
     writeEeprom();
   }
   
+  /* initialize thermal/humidity sensor */
+  dht.begin();
+  
   /* build post message prefix from MAC string */
   buildMsgHeader();
   
-  /* initialize thermal/humidity sensor */
-  dht.begin();
+  /* set first report flag */
+  firstReport = 1;
 }
 
 #define ERROR_VAL 9874
@@ -310,7 +316,9 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     return 0;
   }
   
-  Serial.println(F("posted"));
+  Serial.println(F("posted : "));
+  Serial.print(strlen(thisData));
+  Serial.println(F(" bytes"));
   wdt_reset();
 
   int connectLoop = 0;
@@ -364,20 +372,21 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   int val[3] = {ERROR_VAL, ERROR_VAL, ERROR_VAL};
   int rssi = -60;
    
-  wifiStatus = cc3000.getStatus();
-  if (wifiStatus != STATUS_CONNECTED) {
+  if (!cc3000.checkDHCP()) {
     Serial.println(F("disconnected"));
     wdt_disable();
     connectAp();
     wdt_enable(WDTO_8S);
   }
   
-  sprintf(postData, "%s&type=%d&value=%d&rssi=%d", msgHeader, sensor_type, (int)(value*10.0), rssi);
+  sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
   ret = !postPage(server, 80, "/sensor/input/", postData, val);
   
   if (ret) {
     return -1;
   }
+  
+  firstReport = 0;
   
   if (val[0] == ERROR_VAL) {
     Serial.println(F("Getting settings failed"));
@@ -435,14 +444,14 @@ void loop() {
       Serial.println(F("reported"));
     } else {
       Serial.println(F("adjust loop count"));
-      loop_count = 1;
+      loop_count /= 2;
     }
     wdt_reset();
     if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println(F("reported"));
     } else {
       Serial.println(F("adjust loop count"));
-      loop_count = 1;
+      loop_count /= 2;
     }
     wdt_reset();
     

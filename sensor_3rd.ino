@@ -274,6 +274,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   byte ret, isSigned, valIndex, i;
   int * pVal;
   int status;
+  byte rx_byte = 0;
   enum parseStatus parState = NONE_STATUS;
   
   for (i = 0; i < WWW_TRIALS; i++) {
@@ -316,7 +317,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     return 0;
   }
   
-  Serial.println(F("posted : "));
+  Serial.print(F("posted : "));
   Serial.print(strlen(thisData));
   Serial.println(F(" bytes"));
   wdt_reset();
@@ -330,6 +331,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       char c = www.read();
       //block ?
       //Serial.print(c);
+      rx_byte ++;
       lastRead = millis();
       
       if (parState != EXIT_STATUS && c == '+') {
@@ -340,6 +342,9 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       } else if (parState == VALUE_STATUS) {
         if (c == '-') {
           isSigned = 1;
+        } else if (c == 'z') {
+          wdt_disable();
+          while(true);
         } else if (c == 'e') {
           *pVal = ERROR_VAL;
           parState = EXIT_STATUS;
@@ -359,7 +364,9 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     }
   }
   www.close();
-  Serial.println("read");  
+  Serial.print(F("read : "));
+  Serial.print(rx_byte);
+  Serial.println(F(" bytes"));
   wdt_reset();
   
   return 1;

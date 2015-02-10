@@ -193,7 +193,7 @@ int connectAp(byte trials) {
   cc3000.setDHCP();
   
   if (!cc3000.connectToAP(ssid, passwd, security, trials)) {
-    Serial.println(F("AP connection failed"));
+    Serial.println(F("AP connected 0"));
     return -1;
   }
   while (!cc3000.checkDHCP())
@@ -201,7 +201,7 @@ int connectAp(byte trials) {
     delay(100);
   }
   delay(500);
-  Serial.println(F("AP connected"));
+  Serial.println(F("AP connected 1"));
   
   return 0;
 }

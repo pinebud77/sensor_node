@@ -209,7 +209,45 @@ int connectAp(byte trials) {
   return 0;
 }
 
+int encType(int thisType) {
+  switch (thisType) {
+    case ENC_TYPE_WEP:
+      return 1;
+      break;
+    case ENC_TYPE_TKIP:
+      return 2;
+      break;
+    case ENC_TYPE_CCMP:
+      return 3;
+      break;
+    case ENC_TYPE_NONE:
+      return 0;
+      break;
+    case ENC_TYPE_AUTO:
+      return 3;
+      break;
+  }
+}
+
 void scanNetworks() {
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present");
+    // don't continue:
+    while (true);
+  }
+  
+  String fv = WiFi.firmwareVersion();
+  if ( fv != "1.1.0" )
+    Serial.println("Please upgrade the firmware");
+  
+  int numSsid = WiFi.scanNetworks();
+  Serial.println("Scan result : ");
+  
+  for (int thisNet = 0; thisNet < numSsid; thisNet++) {
+    Serial.println(WiFi.SSID(thisNet));
+    Serial.println(WiFi.RSSI(thisNet));
+    Serial.println('0' + encType(WiFi.encryptionType(thisNet)));
+  }
 }
 
 void setup() {
@@ -242,8 +280,6 @@ void setup() {
                 }
               } else if (tempInput[0] == 's') {
                 scanNetworks();
-                getInput();
-                writeEeprom();
               }
             }
         }while (! connected);

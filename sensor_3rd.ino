@@ -230,8 +230,8 @@ void scanNetworks() {
     valid = cc3000.getNextSSID(&rssi, &sec, ssid);
     Serial.println(ssid);
     Serial.print("-");
-    Serial.println(rssi);
-    Serial.println('0'+sec);
+    Serial.println(128 - rssi);
+    Serial.println(sec);
   }
   
   cc3000.stopSSIDscan();
@@ -281,12 +281,14 @@ void setup() {
   /* read AP connections settings */
   readEeprom();
   
-  while (connectAp(1)) {
-    firstTrial = 0;
-    while (!Serial) {
-      ;
+  if (!connected) {
+    while (connectAp(1)) {
+      firstTrial = 0;
+      while (!Serial) {
+        ;
+      }
+      getInput();
     }
-    getInput();
   }
   
   /* save AP info if we connected by user input */

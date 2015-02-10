@@ -1,5 +1,3 @@
-#define CC3000_TINY_DRIVER 1
-
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
@@ -24,7 +22,7 @@ Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ
 Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 
 /* wifi connection definitions and variables */
-#define MAX_SSID 20
+#define MAX_SSID 33
 #define MAX_PASSWD 20
 char ssid[MAX_SSID];
 char passwd[MAX_PASSWD];
@@ -91,15 +89,12 @@ void getLineInput(char * buffer, int len) {
     do {
       bytes = Serial.readBytes(&buffer[i], 1);
     } while (bytes == 0);
-    if (i == 0 && buffer[i] == '\r') {
-      i--;
-      continue;
-    } else if (i == 0 && buffer[i] == '\n') {
-      i--;
-      continue;
-    }else if (buffer[i] == '\r' || buffer[i] == '\n') {
+    if (buffer[i] == '\r' || buffer[i] == '\n') {
+      char trashTrail;
       //Serial.println();
       buffer[i] = 0;
+      Serial.setTimeout(100);
+      Serial.readBytes(&trashTrail, 1);  //remove trailing \r or \n
       return;
     }
     //Serial.print(buffer[i]);
@@ -212,6 +207,37 @@ int connectAp(byte trials) {
 }
 
 void scanNetworks() {
+  uint32_t index;
+  uint8_t valid, rssi, sec;
+  char b;
+  
+  if (!cc3000.begin())
+  {
+    Serial.println(F("wiring problem?"));
+    while(1);
+  }
+  
+  if(!cc3000.startSSIDscan(&index)){
+    Serial.println(F("SSID scan failed!"));
+    return;
+  }
+  
+  Serial.println("Scan result : ");
+  
+  while(index){
+    index --;
+    
+    valid = cc3000.getNextSSID(&rssi, &sec, ssid);
+    Serial.println(ssid);
+    Serial.print("-");
+    Serial.println(rssi);
+    Serial.println('0'+sec);
+  }
+  
+  cc3000.stopSSIDscan();
+  
+  Serial.setTimeout(0xffffff);
+  Serial.readBytes(&b, 1);
 }
 
 void setup() {
@@ -232,22 +258,20 @@ void setup() {
     if (Serial.readBytes(tempInput, 1)) {
         if (tempInput[0] == 'c') {
           do {
-          Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
-          Serial.setTimeout(0xffffff);
-          if (Serial.readBytes(tempInput, 1)) {
-            if (tempInput[0] == 'a') {
-              getInput();
-              if (!connectAp(1)) {
-                connected = 1;
-                writeEeprom();
-                break;
+            Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
+            Serial.setTimeout(0xffffff);
+            if (Serial.readBytes(tempInput, 1)) {
+              if (tempInput[0] == 'a') {
+                getInput();
+                if (!connectAp(1)) {
+                  connected = 1;
+                  writeEeprom();
+                  break;
+                }
+              } else if (tempInput[0] == 's') {
+                scanNetworks();
               }
-            } else if (tempInput[0] == 's') {
-              scanNetworks();
-              getInput();
-              writeEeprom();
             }
-          }
         }while (! connected);
       } 
       

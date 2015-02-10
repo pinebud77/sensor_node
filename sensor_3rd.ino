@@ -230,6 +230,8 @@ int encType(int thisType) {
 }
 
 void scanNetworks() {
+  char b;
+  
   if (WiFi.status() == WL_NO_SHIELD) {
     Serial.println("WiFi shield not present");
     // don't continue:
@@ -248,6 +250,8 @@ void scanNetworks() {
     Serial.println(WiFi.RSSI(thisNet));
     Serial.println('0' + encType(WiFi.encryptionType(thisNet)));
   }
+  Serial.setTimeout(0xffffff);
+  Serial.readBytes(&b, 1);
 }
 
 void setup() {

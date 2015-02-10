@@ -1,8 +1,5 @@
-#define CC3000_TINY_DRIVER 1
-
-#include <Adafruit_cc3000.h>
-#include <ccspi.h>
 #include <SPI.h>
+#include <WiFi.h>
 #include <sha1.h>
 #include <DHT.h>
 #include <avr/wdt.h>
@@ -10,18 +7,13 @@
 #include <EEPROM.h>
 
 /* sensor definitions and variables */
-#define DHTPIN 7
-#define DHTTYPE DHT11
+#define DHTPIN 2
+#define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
 /* wifi definitions and variables */
-#define ADAFRUIT_CC3000_IRQ   3
-#define ADAFRUIT_CC3000_VBAT  5
-#define ADAFRUIT_CC3000_CS    10
 #define IDLE_TIMEOUT_MS  5000
-
-Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT, SPI_CLOCK_DIV2);
-Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
+WiFiClient www;
 
 /* wifi connection definitions and variables */
 #define MAX_SSID 20
@@ -91,15 +83,12 @@ void getLineInput(char * buffer, int len) {
     do {
       bytes = Serial.readBytes(&buffer[i], 1);
     } while (bytes == 0);
-    if (i == 0 && buffer[i] == '\r') {
-      i--;
-      continue;
-    } else if (i == 0 && buffer[i] == '\n') {
-      i--;
-      continue;
-    }else if (buffer[i] == '\r' || buffer[i] == '\n') {
+    if (buffer[i] == '\r' || buffer[i] == '\n') {
+      char trashTrail;
       //Serial.println();
       buffer[i] = 0;
+      Serial.setTimeout(100);
+      Serial.readBytes(&trashTrail, 1);  //remove trailing \r or \n
       return;
     }
     //Serial.print(buffer[i]);
@@ -175,7 +164,7 @@ int buildMsgHeader() {
   char macEncString[28];
   char secureKey[41];
   
-  cc3000.getMacAddress(mac);
+  WiFi.macAddress(mac);
   buildMacString(mac, macString, 0);
   Serial.print(F("mac: "));
   Serial.println(macString);
@@ -188,25 +177,34 @@ int buildMsgHeader() {
 }
 
 int connectAp(byte trials) {
+  byte i;
+  int status = WL_IDLE_STATUS;  
+  
   Serial.println(F("connecting to AP.. "));
-  if (!cc3000.begin())
-  {
-    Serial.println(F("wiring problem?"));
-    while(1);
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present");
+    // don't continue:
+    while (true);
   }
   
-  cc3000.setDHCP();
+  String fv = WiFi.firmwareVersion();
+  if ( fv != "1.1.0" )
+    Serial.println("Please upgrade the firmware");
   
-  if (!cc3000.connectToAP(ssid, passwd, security, trials)) {
-    Serial.println(F("AP connection failed"));
+  for (i = 0; i < trials; i++) {
+    status = WiFi.begin(ssid, passwd);
+    delay(5000);
+    if (WiFi.status() == WL_CONNECTED) {
+      break;
+    }
+  }
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(F("AP connected 0"));
     return -1;
   }
-  while (!cc3000.checkDHCP())
-  {
-    delay(100);
-  }
-  delay(500);
-  Serial.println(F("AP connected"));
+  
+  Serial.println(F("AP connected 1"));
   
   return 0;
 }
@@ -232,22 +230,22 @@ void setup() {
     if (Serial.readBytes(tempInput, 1)) {
         if (tempInput[0] == 'c') {
           do {
-          Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
-          Serial.setTimeout(0xffffff);
-          if (Serial.readBytes(tempInput, 1)) {
-            if (tempInput[0] == 'a') {
-              getInput();
-              if (!connectAp(1)) {
-                connected = 1;
+            Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
+            Serial.setTimeout(0xffffff);
+            if (Serial.readBytes(tempInput, 1)) {
+              if (tempInput[0] == 'a') {
+                getInput();
+                if (!connectAp(1)) {
+                  connected = 1;
+                  writeEeprom();
+                  break;
+                }
+              } else if (tempInput[0] == 's') {
+                scanNetworks();
+                getInput();
                 writeEeprom();
-                break;
               }
-            } else if (tempInput[0] == 's') {
-              scanNetworks();
-              getInput();
-              writeEeprom();
             }
-          }
         }while (! connected);
       } 
       
@@ -301,7 +299,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   for (i = 0; i < WWW_TRIALS; i++) {
     Serial.print(F("connecting the server.."));
     wdt_reset();
-    www.close();
+    www.stop();
     status = www.connect(domainBuffer, thisPort);
     wdt_reset();
     if (www.connected())
@@ -384,7 +382,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
      } 
     }
   }
-  www.close();
+  www.stop();
   Serial.print(F("read : "));
   Serial.print(rx_byte);
   Serial.println(F(" bytes"));
@@ -400,7 +398,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   int val[3] = {ERROR_VAL, ERROR_VAL, ERROR_VAL};
   int rssi = -60;
    
-  if (!cc3000.checkDHCP()) {
+  if (WiFi.status() != WL_CONNECTED) {
     Serial.println(F("disconnected"));
     wdt_disable();
     connectAp(2);

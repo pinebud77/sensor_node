@@ -81,6 +81,7 @@ void writeEeprom() {
   EEPROM.write(MAX_SSID + MAX_SSID + 1, security);
 }
 
+/* ugly ugly */
 /* get the line input : the buffer should be big enough to handle \r \n \0 */
 void getLineInput(char * buffer, int len) {
   int i = 0;
@@ -90,18 +91,21 @@ void getLineInput(char * buffer, int len) {
     do {
       bytes = Serial.readBytes(&buffer[i], 1);
     } while (bytes == 0);
-    if (buffer[i] == '\r') {
+    if (i == 0 && buffer[i] == '\r') {
       i--;
       continue;
-    } else if (buffer[i] == '\n') {
-      Serial.println();
+    } else if (i == 0 && buffer[i] == '\n') {
+      i--;
+      continue;
+    }else if (buffer[i] == '\r' || buffer[i] == '\n') {
+      //Serial.println();
       buffer[i] = 0;
       return;
     }
-    Serial.print(buffer[i]);
+    //Serial.print(buffer[i]);
   }
   buffer[i] = 0;
-  Serial.println();
+  //Serial.println();
 }
 
 void getInput() {
@@ -112,10 +116,6 @@ void getInput() {
   getLineInput(ssid, MAX_SSID);
   
   do {
-    Serial.println(F(">None : 0"));
-    Serial.println(F(">WEP : 1"));
-    Serial.println(F(">WPA1 : 2"));
-    Serial.println(F(">WPA2 : 3"));
     Serial.print(F("Security : "));
     getLineInput(sec, 3);
     security = sec[0] - '0';
@@ -187,9 +187,8 @@ int buildMsgHeader() {
   return 0;
 }
 
-int connectAp() {
-  Serial.print(F("connecting to AP.. "));
-  Serial.println(ssid);
+int connectAp(byte trials) {
+  Serial.println(F("connecting to AP.. "));
   if (!cc3000.begin())
   {
     Serial.println(F("wiring problem?"));
@@ -198,7 +197,7 @@ int connectAp() {
   
   cc3000.setDHCP();
   
-  if (!cc3000.connectToAP(ssid, passwd, security, 3)) {
+  if (!cc3000.connectToAP(ssid, passwd, security, trials)) {
     Serial.println(F("AP connection failed"));
     return -1;
   }
@@ -207,14 +206,19 @@ int connectAp() {
     delay(100);
   }
   delay(500);
+  Serial.println(F("AP connected"));
   
   return 0;
+}
+
+void scanNetworks() {
 }
 
 void setup() {
   int i;
   int firstTrial = 1;
   char tempInput[1];
+  byte connected = 0;
   
   /* disable watchdog for now */
   wdt_disable();
@@ -226,17 +230,34 @@ void setup() {
     Serial.println(F("Press 'c' key to update AP settings : "));
     Serial.setTimeout(5000);
     if (Serial.readBytes(tempInput, 1)) {
-      if (tempInput[0] == 'c') {
-        getInput();
-        writeEeprom();
-      }
+        if (tempInput[0] == 'c') {
+          do {
+          Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
+          Serial.setTimeout(0xffffff);
+          if (Serial.readBytes(tempInput, 1)) {
+            if (tempInput[0] == 'a') {
+              getInput();
+              if (!connectAp(1)) {
+                connected = 1;
+                writeEeprom();
+                break;
+              }
+            } else if (tempInput[0] == 's') {
+              scanNetworks();
+              getInput();
+              writeEeprom();
+            }
+          }
+        }while (! connected);
+      } 
+      
     }
   }
   
   /* read AP connections settings */
   readEeprom();
   
-  while (connectAp()) {
+  while (connectAp(1)) {
     firstTrial = 0;
     while (!Serial) {
       ;
@@ -382,7 +403,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   if (!cc3000.checkDHCP()) {
     Serial.println(F("disconnected"));
     wdt_disable();
-    connectAp();
+    connectAp(2);
     wdt_enable(WDTO_8S);
   }
   

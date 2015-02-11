@@ -38,7 +38,6 @@ char outBuf[70];
 char postData[140];
 int firstReport = 1;
 
-
 void readEeprom() {
   int i;
   
@@ -46,12 +45,12 @@ void readEeprom() {
   for (i = 0; i < MAX_SSID - 1; i++) {
     ssid[i] = EEPROM.read(i);
   }
-  ssid[MAX_SSID] = 0;
+  ssid[MAX_SSID-1] = 0;
   for (i = 0; i < MAX_PASSWD - 1; i++) {
     passwd[i] = EEPROM.read(i + MAX_SSID);
   }
-  passwd[MAX_PASSWD] = 0;
-  security = EEPROM.read(MAX_SSID + MAX_PASSWD + 1);
+  passwd[MAX_PASSWD-1] = 0;
+  security = EEPROM.read(MAX_SSID + MAX_PASSWD);
   
   /*
   //debug prints
@@ -76,7 +75,7 @@ void writeEeprom() {
   for (i = 0; i < MAX_PASSWD; i++) {
     EEPROM.write(i + MAX_SSID, passwd[i]);
   }
-  EEPROM.write(MAX_SSID + MAX_SSID + 1, security);
+  EEPROM.write(MAX_SSID + MAX_PASSWD, security);
 }
 
 /* ugly ugly */
@@ -286,7 +285,7 @@ void setup() {
   readEeprom();
   
   if (!connected) {
-    while (connectAp(1)) {
+    while (connectAp(2)) {
       firstTrial = 0;
       while (!Serial) {
         ;

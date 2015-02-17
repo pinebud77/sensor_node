@@ -16,14 +16,13 @@ DHT dht(DHTPIN, DHTTYPE);
 WiFiRM04Client www;
 
 /* wifi connection definitions and variables */
-#define MAX_SSID 33
+#define MAX_SSID 15
 #define MAX_PASSWD 20
 char ssid[MAX_SSID];
 char passwd[MAX_PASSWD];
 char security;
 
 /* web connection definitions and variables */
-#define WWW_TRIALS  2
 #define IDLE_MEASURE_COUNT 10
 char server[] = "galvanic-cirrus-841.appspot.com";
 
@@ -32,7 +31,11 @@ char outBuf[70];
 char postData[140];
 int firstReport = 1;
 
-
+int freeRam () {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
 void readEeprom() {
   int i;
 
@@ -75,16 +78,16 @@ void getLineInput(char * buffer, int len) {
     while (bytes == 0);
     if (buffer[i] == '\r' || buffer[i] == '\n') {
       char trashTrail;
-      //Serial.println();
+      Serial.println();
       buffer[i] = 0;
       Serial.setTimeout(100);
       Serial.readBytes(&trashTrail, 1);  //remove trailing \r or \n
       return;
     }
-    //Serial.print(buffer[i]);
+    Serial.print(buffer[i]);
   }
   buffer[i] = 0;
-  //Serial.println();
+  Serial.println();
 }
 
 void getInput() {
@@ -116,7 +119,7 @@ int buildSecureKey(char* macString, char* secureKey) {
   Sha1.print("owen77");
   Sha1.print(macString);
   Sha1.print("young");
-
+  
   hash = Sha1.result();
 
   for (i = 0; i < 20; i++) {
@@ -252,7 +255,6 @@ void setup() {
   char tempInput[1];
   byte connected = 0;
 
-  /* disable watchdog for now */
   wdt_disable();
 
   Serial.begin(9600);
@@ -296,7 +298,7 @@ void setup() {
   readEeprom();
 
   if (!connected) {
-    while (connectAp(2)) {
+    while (connectAp(1)) {
       firstTrial = 0;
       while (!Serial) {
         ;
@@ -338,23 +340,21 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   byte rx_byte = 0;
   enum parseStatus parState = NONE_STATUS;
 
-  for (i = 0; i < WWW_TRIALS; i++) {
-    Serial.print(F("connecting the server.."));
-    wdt_reset();
-    www.stop();
-    status = www.connect(domainBuffer, thisPort);
-    wdt_reset();
-    if (www.connected())
-      break;
-  }
-
+  wdt_reset();
+  status = www.connect(domainBuffer, thisPort);
+  wdt_reset();
+  
   if(www.connected())
   {
     Serial.println(F("connected"));
+    wdt_reset();
 
     // send the header
+#if 0
     sprintf(outBuf, "POST %s HTTP/1.1", page);
     www.println(outBuf);
+#endif
+    www.println(F("POST /sensor/input/ HTTP/1.1"));
     sprintf(outBuf,"Host: %s",domainBuffer);
     www.println(outBuf);
     www.println(F("Connection: close"));
@@ -392,7 +392,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     while (www.available()) {
       char c = www.read();
       //block ?
-      //Serial.print(c);
+      Serial.print(c);
       rx_byte ++;
       lastRead = millis();
 
@@ -449,15 +449,13 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
     ERROR_VAL, ERROR_VAL, ERROR_VAL    };
   int rssi = -60;
 
+  wdt_reset();
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println(F("disconnected"));
-    wdt_disable();
-    connectAp(2);
-    wdt_enable(WDTO_8S);
+    connectAp(1);
   }
-
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
-  ret = !postPage(server, 80, "/sensor/input/", postData, val);
+  ret = !postPage(server, 80, "", postData, val);
 
   if (ret) {
     return -1;

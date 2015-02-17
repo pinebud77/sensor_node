@@ -349,12 +349,8 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     Serial.println(F("connected"));
     wdt_reset();
 
-    // send the header
-#if 0
     sprintf(outBuf, "POST %s HTTP/1.1", page);
     www.println(outBuf);
-#endif
-    www.println(F("POST /sensor/input/ HTTP/1.1"));
     sprintf(outBuf,"Host: %s",domainBuffer);
     www.println(outBuf);
     www.println(F("Connection: close"));
@@ -365,12 +361,12 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     int dataLen = strlen(thisData);
     char * pos = thisData;
     do {
-      www.write(pos, 10);
-      dataLen -= 10;
-      pos += 10;
+      int written = www.write(pos, 10);
+      dataLen -= written;
+      pos += written;
+      delay(10);
     } 
-    while (dataLen > 10);
-    www.write(pos, dataLen);
+    while (dataLen > 0);
   }
   else
   {
@@ -392,7 +388,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     while (www.available()) {
       char c = www.read();
       //block ?
-      Serial.print(c);
+      //Serial.print(c);
       rx_byte ++;
       lastRead = millis();
 
@@ -455,7 +451,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
     connectAp(1);
   }
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
-  ret = !postPage(server, 80, "", postData, val);
+  ret = !postPage(server, 80, "/sensor/input/", postData, val);
 
   if (ret) {
     return -1;

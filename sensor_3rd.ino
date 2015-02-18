@@ -526,7 +526,7 @@ void loop() {
       loop_count /= 2;
     }
     wdt_reset();
-    Serial.print(F("TS delay 4000"));
+    Serial.print(F("TS delay 4000 : "));
     Serial.println(millis()); 
     delay(4000);
     wdt_reset();

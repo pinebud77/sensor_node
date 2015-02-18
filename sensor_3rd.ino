@@ -367,6 +367,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       delay(10);
     } 
     while (dataLen > 0);
+    www.println();
   }
   else
   {
@@ -450,8 +451,10 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
     Serial.println(F("disconnected"));
     connectAp(1);
   }
+  wdt_reset();
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
   ret = !postPage(server, 80, "/sensor/input/", postData, val);
+  wdt_reset();
 
   if (ret) {
     return -1;
@@ -503,7 +506,7 @@ void loop() {
   while(true) {
     first = millis();
     Serial.println();
-    Serial.print(F("TS:")); 
+    Serial.print(F("TS measure:")); 
     Serial.println(first);
 
     dht.read();
@@ -512,6 +515,9 @@ void loop() {
 
     wdt_reset();
     loop_count = IDLE_MEASURE_COUNT;
+    Serial.println();
+    Serial.print(F("TS temper report:"));
+    Serial.println(millis());
     if (temperature != NAN && !report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0)) {
       Serial.println(F("reported"));
     } 
@@ -520,6 +526,12 @@ void loop() {
       loop_count /= 2;
     }
     wdt_reset();
+    Serial.print(F("TS delay 4000"));
+    Serial.println(millis()); 
+    delay(4000);
+    wdt_reset();
+    Serial.print(F("TS humid report:"));
+    Serial.println(millis()); 
     if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println(F("reported"));
     } 
@@ -527,6 +539,8 @@ void loop() {
       Serial.println(F("adjust loop count"));
       loop_count /= 2;
     }
+    Serial.print(F("TS report finish:")); 
+    Serial.println(millis()); 
     wdt_reset();
 
     if (reportPeriod < 120UL)
@@ -544,12 +558,16 @@ void loop() {
       Serial.println(last);
       Serial.println(F("value"));
 
+      wdt_reset();
       dht.read();
+      wdt_reset();
       temperature = dht.readTemperature();
+      wdt_reset();
       humidity = dht.readHumidity();
 
       Serial.println(temperature);
       Serial.println(humidity);
+      wdt_reset();
 
       if (!outRangeReported && outRange(temperature, lowTh0, highTh0) || outRange(humidity, lowTh1, highTh1)) {
         outRangeReported = 1;
@@ -568,10 +586,12 @@ void loop() {
           target -= 4000UL;
           delay(4000UL);
           //Serial.println(target);
-        } 
+        }
         while (target >= 4000UL); 
+        wdt_reset();
         delay(target);        
       }
+      wdt_reset();
       first = 0;
     }
   }  

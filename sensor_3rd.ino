@@ -298,8 +298,9 @@ void setup() {
   readEeprom();
 
   if (!connected) {
-    while (connectAp(1)) {
+    while (connectAp(2)) {
       firstTrial = 0;
+      wdt_enable(WDTO_8S);
       while (!Serial) {
         ;
       }

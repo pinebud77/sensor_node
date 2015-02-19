@@ -175,6 +175,8 @@ int buildMsgHeader() {
 int connectAp(byte trials) {
   byte i;
   int status = WL_IDLE_STATUS;  
+  
+  wdt_disable();
 
   Serial.println(F("connecting to AP.. "));
 
@@ -188,10 +190,12 @@ int connectAp(byte trials) {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println(F("AP connected 0"));
+    wdt_enable(WDTO_8S);
     return -1;
   }
 
   Serial.println(F("AP connected 1"));
+  wdt_enable(WDTO_8S);
 
   return 0;
 }
@@ -296,11 +300,12 @@ void setup() {
 
   /* read AP connections settings */
   readEeprom();
+  
+  wdt_enable(WDTO_8S);
 
   if (!connected) {
     while (connectAp(2)) {
       firstTrial = 0;
-      wdt_enable(WDTO_8S);
       while (!Serial) {
         ;
       }

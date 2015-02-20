@@ -410,7 +410,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
           isSigned = 1;
         } 
         else if (c == 'z') {
-          wdt_disable();
+          //reset the device
           while(true);
         } 
         else if (c == 'e') {

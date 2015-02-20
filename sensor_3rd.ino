@@ -278,11 +278,10 @@ void setup() {
               getInput();
               if (!connectAp(1)) {
                 connected = 1;
-                buildMsgHeader();
-                writeEeprom();
-                break;
               }
               buildMsgHeader();
+              writeEeprom();
+              break;
             } 
             else if (tempInput[0] == 's') {
               scanNetworks();

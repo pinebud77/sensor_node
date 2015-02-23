@@ -5,6 +5,7 @@
 #include <DHT.h>
 #include <avr/wdt.h>
 
+//#define ECHO_ON
 #include <EEPROM.h>
 
 /* sensor definitions and variables */
@@ -29,7 +30,6 @@ char passwd[MAX_PASSWD];
 char security;
 
 /* web connection definitions and variables */
-#define WWW_TRIALS  2
 #define IDLE_MEASURE_COUNT 10
 char server[] = "galvanic-cirrus-841.appspot.com";
 
@@ -38,9 +38,14 @@ char outBuf[70];
 char postData[140];
 int firstReport = 1;
 
+int freeRam () {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
 void readEeprom() {
   int i;
-  
+
   Serial.println(F("reading EEPROM.."));
   for (i = 0; i < MAX_SSID - 1; i++) {
     ssid[i] = EEPROM.read(i);
@@ -51,24 +56,13 @@ void readEeprom() {
   }
   passwd[MAX_PASSWD-1] = 0;
   security = EEPROM.read(MAX_SSID + MAX_PASSWD);
-  
-  /*
-  //debug prints
-  Serial.print(F("read ssid : "));
-  Serial.println(ssid);
-  Serial.print(F("read passwd : "));
-  Serial.println(passwd);
-  Serial.print(F("read security : "));
-  Serial.println((int)security);
-  Serial.println();
-  */
 }
 
 void writeEeprom() {
   int i;
-  
+
   Serial.println("Writing EEPROM");
-  
+
   for (i = 0; i < MAX_SSID; i++) {
     EEPROM.write(i, ssid[i]);
   }
@@ -82,33 +76,40 @@ void writeEeprom() {
 /* get the line input : the buffer should be big enough to handle \r \n \0 */
 void getLineInput(char * buffer, int len) {
   int i = 0;
-  
+
   for (i = 0; i<len - 1; i++) {
     byte bytes;
     do {
       bytes = Serial.readBytes(&buffer[i], 1);
-    } while (bytes == 0);
+    } 
+    while (bytes == 0);
     if (buffer[i] == '\r' || buffer[i] == '\n') {
       char trashTrail;
-      //Serial.println();
+#ifdef ECHO_ON
+      Serial.println();
+#endif
       buffer[i] = 0;
       Serial.setTimeout(100);
       Serial.readBytes(&trashTrail, 1);  //remove trailing \r or \n
       return;
     }
-    //Serial.print(buffer[i]);
+#ifdef ECHO_ON
+    Serial.print(buffer[i]);
+#endif
   }
   buffer[i] = 0;
-  //Serial.println();
+#ifdef ECHO_ON
+  Serial.println();
+#endif
 }
 
 void getInput() {
   int i;
   char sec[3];
-  
+
   Serial.print(F("SSID : "));
   getLineInput(ssid, MAX_SSID);
-  
+
   do {
     Serial.print(F("Security : "));
     getLineInput(sec, 3);
@@ -124,34 +125,35 @@ void getInput() {
 int buildSecureKey(char* macString, char* secureKey) {
   uint8_t* hash;
   int i;
-  
+
   Sha1.init();
   Sha1.print("owen77");
   Sha1.print(macString);
   Sha1.print("young");
   
   hash = Sha1.result();
-  
+
   for (i = 0; i < 20; i++) {
     secureKey[i*2] = "0123456789abcdef"[hash[i]>>4];
     secureKey[i*2+1] = "0123456789abcdef"[hash[i]&0xf];
   }
   secureKey[i*2] = 0;
-  
+
   return 0;
 }
 
 int buildMacString(byte* mac, char* macString, byte sec) {
   int i;
   int stringIndex = 0;
-  
+
   for (i = 0; i < 6; i++) {
     macString[stringIndex++] = "0123456789abcdef"[mac[i]>>4];
     macString[stringIndex++] = "0123456789abcdef"[mac[i]&0xf];
     if (i != 5) {
       if (!sec) {
         macString[stringIndex++] = '-';
-      } else {
+      } 
+      else {
         macString[stringIndex++] = '%';
         macString[stringIndex++] = '3';
         macString[stringIndex++] = 'A';
@@ -159,7 +161,7 @@ int buildMacString(byte* mac, char* macString, byte sec) {
     }
   }
   macString[stringIndex] = 0;
-  
+
   return 0;
 }
 
@@ -244,10 +246,9 @@ void setup() {
   int firstTrial = 1;
   char tempInput[1];
   byte connected = 0;
-  
-  /* disable watchdog for now */
+
   wdt_disable();
-  
+
   Serial.begin(9600);
   
   /* check if user want update the input */
@@ -255,35 +256,39 @@ void setup() {
     Serial.println(F("Press 'c' key to update AP settings : "));
     Serial.setTimeout(5000);
     if (Serial.readBytes(tempInput, 1)) {
-        if (tempInput[0] == 'c') {
-          do {
-            Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
-            Serial.setTimeout(0xffffff);
-            if (Serial.readBytes(tempInput, 1)) {
-              if (tempInput[0] == 'a') {
-                getInput();
-                if (!connectAp(1)) {
-                  connected = 1;
-                  buildMsgHeader();
-                  writeEeprom();
-                  break;
-                }
-                buildMsgHeader();
-              } else if (tempInput[0] == 's') {
-                scanNetworks();
-              } else if (tempInput[0] == 'b') {
-                break;
+      if (tempInput[0] == 'c') {
+        do {
+          Serial.println(F("Press 'a' to set AP settings, Press 's' to scan APs : "));
+          Serial.setTimeout(0xffffff);
+          if (Serial.readBytes(tempInput, 1)) {
+            if (tempInput[0] == 'a') {
+              getInput();
+              if (!connectAp(1)) {
+                connected = 1;
               }
+              buildMsgHeader();
+              writeEeprom();
+              break;
+            } 
+            else if (tempInput[0] == 's') {
+              scanNetworks();
+            } 
+            else if (tempInput[0] == 'b') {
+              break;
             }
-        }while (! connected);
+          }
+        }
+        while (! connected);
       } 
-      
+
     }
   }
-  
+
   /* read AP connections settings */
   readEeprom();
   
+  wdt_enable(WDTO_8S);
+
   if (!connected) {
     while (connectAp(2)) {
       firstTrial = 0;
@@ -293,18 +298,18 @@ void setup() {
       getInput();
     }
   }
-  
+
   /* save AP info if we connected by user input */
   if (!firstTrial) {
     writeEeprom();
   }
-  
+
   /* initialize thermal/humidity sensor */
   dht.begin();
-  
+
   /* build post message prefix from MAC string */
   buildMsgHeader();
-  
+
   /* set first report flag */
   firstReport = 1;
 }
@@ -326,22 +331,16 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   int status;
   byte rx_byte = 0;
   enum parseStatus parState = NONE_STATUS;
+
+  wdt_reset();
+  status = www.connect(domainBuffer, thisPort);
+  wdt_reset();
   
-  for (i = 0; i < WWW_TRIALS; i++) {
-    Serial.print(F("connecting the server.."));
-    wdt_reset();
-    www.close();
-    status = www.connect(domainBuffer, thisPort);
-    wdt_reset();
-    if (www.connected())
-      break;
-  }
-      
   if(www.connected())
   {
     Serial.println(F("connected"));
-        
-    // send the header
+    wdt_reset();
+
     sprintf(outBuf, "POST %s HTTP/1.1", page);
     www.println(outBuf);
     sprintf(outBuf,"Host: %s",domainBuffer);
@@ -350,15 +349,17 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     www.println(F("Content-Type: application/x-www-form-urlencoded"));
     sprintf(outBuf, "Content-Length: %u\r\n", strlen(thisData));
     www.println(outBuf);   
-        
+
     int dataLen = strlen(thisData);
     char * pos = thisData;
     do {
-      www.write(pos, 10);
-      dataLen -= 10;
-      pos += 10;
-    } while (dataLen > 10);
-    www.write(pos, dataLen);
+      int written = www.write(pos, 10);
+      dataLen -= written;
+      pos += written;
+      delay(10);
+    } 
+    while (dataLen > 0);
+    www.println();
   }
   else
   {
@@ -366,7 +367,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     Serial.println(status);
     return 0;
   }
-  
+
   Serial.print(F("posted : "));
   Serial.print(strlen(thisData));
   Serial.println(F(" bytes"));
@@ -383,32 +384,39 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
       //Serial.print(c);
       rx_byte ++;
       lastRead = millis();
-      
+
       if (parState != EXIT_STATUS && c == '+') {
         isSigned = 0;
         parState = VALUE_STATUS;
         pVal = &val[valIndex++];
         *pVal = 0;
-      } else if (parState == VALUE_STATUS) {
+      } 
+      else if (parState == VALUE_STATUS) {
         if (c == '-') {
           isSigned = 1;
-        } else if (c == 'z') {
-          wdt_disable();
+        } 
+        else if (c == 'z') {
+          //reset the device
           while(true);
-        } else if (c == 'e') {
+        } 
+        else if (c == 'e') {
           *pVal = ERROR_VAL;
           parState = EXIT_STATUS;
-        }else if (c == 'n') {
+        }
+        else if (c == 'n') {
           *pVal = ERROR_VAL;
           parState = EQUAL_STATUS;
-        } else if (c == '=') {
-         if (isSigned) *pVal = - *pVal;
-         parState = EQUAL_STATUS;
-        } else if (c == '.') {
+        } 
+        else if (c == '=') {
+          if (isSigned) *pVal = - *pVal;
           parState = EQUAL_STATUS;
-        }else {
-         *pVal *= 10;
-         *pVal += c - '0';
+        } 
+        else if (c == '.') {
+          parState = EQUAL_STATUS;
+        }
+        else {
+          *pVal *= 10;
+          *pVal += c - '0';
         }
      } 
     }
@@ -426,25 +434,26 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
 int report_data(int sensor_type, float value, unsigned long * report_period, int* high_threshold, int* low_threshold) {
   int wifiStatus;
   int ret;
-  int val[3] = {ERROR_VAL, ERROR_VAL, ERROR_VAL};
+  int val[3] = {
+    ERROR_VAL, ERROR_VAL, ERROR_VAL    };
   int rssi = -60;
-   
+
+  wdt_reset();
   if (!cc3000.checkDHCP()) {
     Serial.println(F("disconnected"));
-    wdt_disable();
-    connectAp(2);
-    wdt_enable(WDTO_8S);
+    connectAp(1);
   }
-  
+  wdt_reset();
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
   ret = !postPage(server, 80, "/sensor/input/", postData, val);
-  
+  wdt_reset();
+
   if (ret) {
     return -1;
   }
-  
+
   firstReport = 0;
-  
+
   if (val[0] == ERROR_VAL) {
     Serial.println(F("Getting settings failed"));
     return -1;
@@ -454,20 +463,20 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   *low_threshold = val[2];
   if (*high_threshold == ERROR_VAL) *high_threshold = 1000;
   if (*low_threshold == ERROR_VAL) *low_threshold = -1000;
-  
+
   Serial.println(F("cfg"));
   Serial.println(sensor_type);
   Serial.println(*report_period);
   Serial.println(*high_threshold);
   Serial.println(*low_threshold);
-  
+
   return ret;
 }
 
 int outRange(float value, int low, int high)
 {
   int intVal = (int)(value + 0.5);
-  
+
   if (intVal < low) return 1;
   if (intVal > high) return 1;
   return 0;
@@ -482,36 +491,50 @@ void loop() {
   float temperature, humidity;
   int value;
   unsigned long first, last, target;
-  
+
   /* start Watch dog. */
   wdt_enable(WDTO_8S);
-  
+
   while(true) {
     first = millis();
     Serial.println();
-    Serial.print(F("TS:")); Serial.println(first);
-    
+    Serial.print(F("TS measure:")); 
+    Serial.println(first);
+
     dht.read();
     temperature = dht.readTemperature();
     humidity = dht.readHumidity();
 
     wdt_reset();
     loop_count = IDLE_MEASURE_COUNT;
+    Serial.println();
+    Serial.print(F("TS temper report:"));
+    Serial.println(millis());
     if (temperature != NAN && !report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0)) {
       Serial.println(F("reported"));
-    } else {
+    } 
+    else {
       Serial.println(F("adjust loop count"));
       loop_count /= 2;
     }
     wdt_reset();
+    Serial.print(F("TS delay 4000 : "));
+    Serial.println(millis()); 
+    delay(4000);
+    wdt_reset();
+    Serial.print(F("TS humid report:"));
+    Serial.println(millis()); 
     if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println(F("reported"));
-    } else {
+    } 
+    else {
       Serial.println(F("adjust loop count"));
       loop_count /= 2;
     }
+    Serial.print(F("TS report finish:")); 
+    Serial.println(millis()); 
     wdt_reset();
-    
+
     if (reportPeriod < 120UL)
       reportPeriod = 120;
     measurePeriod = reportPeriod / (unsigned long) IDLE_MEASURE_COUNT;
@@ -523,21 +546,26 @@ void loop() {
     for (i = 0; i < loop_count; i++) {
       last = millis();
       Serial.println();
-      Serial.print(F("TS:")); Serial.println(last);
+      Serial.print(F("TS:")); 
+      Serial.println(last);
       Serial.println(F("value"));
-            
+
+      wdt_reset();
       dht.read();
+      wdt_reset();
       temperature = dht.readTemperature();
+      wdt_reset();
       humidity = dht.readHumidity();
-      
+
       Serial.println(temperature);
       Serial.println(humidity);
-      
+      wdt_reset();
+
       if (!outRangeReported && outRange(temperature, lowTh0, highTh0) || outRange(humidity, lowTh1, highTh1)) {
         outRangeReported = 1;
         break;
       }
-      
+
       if (outRangeReported && !outRange(temperature, lowTh0, highTh0) && !outRange(humidity, lowTh1, highTh1)) {
         outRangeReported = 0;
         break;
@@ -550,11 +578,16 @@ void loop() {
           target -= 4000UL;
           delay(4000UL);
           //Serial.println(target);
-        } while (target >= 4000UL); 
+        }
+        while (target >= 4000UL); 
+        wdt_reset();
         delay(target);        
       }
+      wdt_reset();
       first = 0;
     }
   }  
 }
+
+
 

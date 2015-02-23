@@ -442,7 +442,6 @@ byte postPage(char* thisData, int val[3])
 
 /* report data through POST and get the setting values */
 int report_data(int sensor_type, float value, unsigned long * report_period, int* high_threshold, int* low_threshold) {
-  int wifiStatus;
   int ret;
   int val[3] = {
     ERROR_VAL, ERROR_VAL, ERROR_VAL    };

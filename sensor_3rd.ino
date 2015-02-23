@@ -1,3 +1,4 @@
+//#define CC3000_TINY_DRIVER
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
@@ -5,7 +6,7 @@
 #include <DHT.h>
 #include <avr/wdt.h>
 
-//#define ECHO_ON
+#define ECHO_ON
 #include <EEPROM.h>
 
 /* sensor definitions and variables */
@@ -25,16 +26,14 @@ Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 /* wifi connection definitions and variables */
 #define MAX_SSID 33
 #define MAX_PASSWD 20
-char ssid[MAX_SSID];
-char passwd[MAX_PASSWD];
-char security;
 
 /* web connection definitions and variables */
 #define IDLE_MEASURE_COUNT 10
-char server[] = "galvanic-cirrus-841.appspot.com";
+#define SERVER_NAME "galvanic-cirrus-841.appspot.com"
+#define SERVER_PORT 80
+#define INPUT_PAGE "/sensor/input/"
 
 char msgHeader[100];
-char outBuf[70];
 char postData[140];
 int firstReport = 1;
 
@@ -43,7 +42,7 @@ int freeRam () {
   int v;
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
-void readEeprom() {
+void readEeprom(char * ssid, char * passwd, char *security) {
   int i;
 
   Serial.println(F("reading EEPROM.."));
@@ -55,10 +54,10 @@ void readEeprom() {
     passwd[i] = EEPROM.read(i + MAX_SSID);
   }
   passwd[MAX_PASSWD-1] = 0;
-  security = EEPROM.read(MAX_SSID + MAX_PASSWD);
+  *security = EEPROM.read(MAX_SSID + MAX_PASSWD);
 }
 
-void writeEeprom() {
+void writeEeprom(char * ssid, char * passwd, char security) {
   int i;
 
   Serial.println("Writing EEPROM");
@@ -106,6 +105,11 @@ void getLineInput(char * buffer, int len) {
 void getInput() {
   int i;
   char sec[3];
+  
+  char ssid[MAX_SSID];
+  char passwd[MAX_PASSWD];
+  char security;
+
 
   Serial.print(F("SSID : "));
   getLineInput(ssid, MAX_SSID);
@@ -120,6 +124,8 @@ void getInput() {
     Serial.print(F("Password : "));
     getLineInput(passwd, MAX_PASSWD);
   }
+  
+  writeEeprom(ssid, passwd, security);
 }
 
 int buildSecureKey(char* macString, char* secureKey) {
@@ -184,6 +190,12 @@ int buildMsgHeader() {
 }
 
 int connectAp(byte trials) {
+  char ssid[MAX_SSID];
+  char passwd[MAX_PASSWD];
+  char security;
+  wdt_disable();
+  readEeprom(ssid, passwd, &security);
+
   Serial.println(F("connecting to AP.. "));
   if (!cc3000.begin())
   {
@@ -203,14 +215,17 @@ int connectAp(byte trials) {
   }
   delay(500);
   Serial.println(F("AP connected 1"));
-  
+  wdt_enable(WDTO_8S);
+
   return 0;
 }
 
 void scanNetworks() {
+#ifndef CC3000_TINY_DRIVER
   uint32_t index;
   uint8_t valid, rssi, sec;
   char b;
+  char ssid[MAX_SSID];
   
   if (!cc3000.begin())
   {
@@ -239,6 +254,7 @@ void scanNetworks() {
   
   Serial.setTimeout(0xffffff);
   Serial.readBytes(&b, 1);
+#endif
 }
 
 void setup() {
@@ -267,7 +283,6 @@ void setup() {
                 connected = 1;
               }
               buildMsgHeader();
-              writeEeprom();
               break;
             } 
             else if (tempInput[0] == 's') {
@@ -284,13 +299,10 @@ void setup() {
     }
   }
 
-  /* read AP connections settings */
-  readEeprom();
-  
-  wdt_enable(WDTO_8S);
-
   if (!connected) {
     while (connectAp(2)) {
+        /* read AP connections settings */  
+      wdt_enable(WDTO_8S);
       firstTrial = 0;
       while (!Serial) {
         ;
@@ -299,11 +311,9 @@ void setup() {
     }
   }
 
-  /* save AP info if we connected by user input */
-  if (!firstTrial) {
-    writeEeprom();
-  }
-
+  /* read AP connections settings */  
+  wdt_enable(WDTO_8S);
+  
   /* initialize thermal/humidity sensor */
   dht.begin();
 
@@ -324,7 +334,7 @@ enum parseStatus {
   EXIT_STATUS,
 };
 
-byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int val[3])
+byte postPage(char* thisData, int val[3])
 {
   byte ret, isSigned, valIndex, i;
   int * pVal;
@@ -333,7 +343,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
   enum parseStatus parState = NONE_STATUS;
 
   wdt_reset();
-  status = www.connect(domainBuffer, thisPort);
+  status = www.connect(SERVER_NAME, SERVER_PORT);
   wdt_reset();
   
   if(www.connected())
@@ -341,14 +351,14 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData, int 
     Serial.println(F("connected"));
     wdt_reset();
 
-    sprintf(outBuf, "POST %s HTTP/1.1", page);
-    www.println(outBuf);
-    sprintf(outBuf,"Host: %s",domainBuffer);
-    www.println(outBuf);
+    www.println(F("POST " INPUT_PAGE " HTTP/1.1"));
+    www.println(F("Host: " SERVER_NAME));
     www.println(F("Connection: close"));
     www.println(F("Content-Type: application/x-www-form-urlencoded"));
-    sprintf(outBuf, "Content-Length: %u\r\n", strlen(thisData));
-    www.println(outBuf);   
+    www.print(F("Content-Length: %u\r\n"));
+    www.println(strlen(thisData));
+    www.println();
+    www.println();
 
     int dataLen = strlen(thisData);
     char * pos = thisData;
@@ -437,7 +447,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   int val[3] = {
     ERROR_VAL, ERROR_VAL, ERROR_VAL    };
   int rssi = -60;
-
+  
   wdt_reset();
   if (!cc3000.checkDHCP()) {
     Serial.println(F("disconnected"));
@@ -445,7 +455,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   }
   wdt_reset();
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
-  ret = !postPage(server, 80, "/sensor/input/", postData, val);
+  ret = !postPage(postData, val);
   wdt_reset();
 
   if (ret) {
@@ -501,8 +511,11 @@ void loop() {
     Serial.print(F("TS measure:")); 
     Serial.println(first);
 
+    wdt_reset();
     dht.read();
+    wdt_reset();
     temperature = dht.readTemperature();
+    wdt_reset();
     humidity = dht.readHumidity();
 
     wdt_reset();

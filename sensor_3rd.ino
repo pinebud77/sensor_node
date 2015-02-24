@@ -361,8 +361,6 @@ byte postPage(char* thisData, int val[3])
     Serial.println(F("connected"));
     wdt_reset();
     
-    Serial.println(thisData);
-
     www.fastrprintln(F("POST " INPUT_PAGE " HTTP/1.1"));
     www.fastrprint(F("Host: "));
     www.fastrprintln(F(SERVER_NAME));
@@ -384,7 +382,6 @@ byte postPage(char* thisData, int val[3])
     }
     while (dataLen > 0);
     www.fastrprintln(F(""));
-
   }
   else
   {

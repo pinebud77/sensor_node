@@ -5,9 +5,10 @@
 #include <sha1.h>
 #include <DHT.h>
 #include <avr/wdt.h>
+#include <EEPROM.h>
 
 #define ECHO_ON
-#include <EEPROM.h>
+//#define PRINT_POST_RESULT
 
 /* sensor definitions and variables */
 #define DHTPIN 7
@@ -21,7 +22,6 @@ DHT dht(DHTPIN, DHTTYPE);
 #define IDLE_TIMEOUT_MS  5000
 
 Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ, ADAFRUIT_CC3000_VBAT, SPI_CLOCK_DIV2);
-Adafruit_CC3000_Client www = Adafruit_CC3000_Client();
 
 /* wifi connection definitions and variables */
 #define MAX_SSID 33
@@ -341,9 +341,18 @@ byte postPage(char* thisData, int val[3])
   int status;
   byte rx_byte = 0;
   enum parseStatus parState = NONE_STATUS;
+  Adafruit_CC3000_Client www;
+  uint32_t ip = 0;
+  
+  while (ip == 0) {
+    if (! cc3000.getHostByName(SERVER_NAME, &ip)) {
+      Serial.println(F("Couldn't resolve!"));
+    }
+    delay(500);
+  }
 
   wdt_reset();
-  status = www.connect(SERVER_NAME, SERVER_PORT);
+  www = cc3000.connectTCP(ip, SERVER_PORT);
   wdt_reset();
   
   if(www.connected())
@@ -362,12 +371,9 @@ byte postPage(char* thisData, int val[3])
     www.fastrprintln(F("/x-www-form-urlencoded"));
     www.fastrprint(F("Content-Length: "));
     sprintf(length_buffer, "%u", strlen(thisData));
-    Serial.println(length_buffer);
     www.fastrprintln(length_buffer);
     www.fastrprintln(F(""));
-    
-    delay(50);
-    
+        
     int dataLen = strlen(thisData);
     char * pos = thisData;
     do {
@@ -400,8 +406,9 @@ byte postPage(char* thisData, int val[3])
     wdt_reset();
     while (www.available()) {
       char c = www.read();
-      //block ?
+#ifdef PRINT_POST_RESULT
       Serial.print(c);
+#endif
       rx_byte ++;
       lastRead = millis();
 
@@ -458,7 +465,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   int rssi = -60;
   
   wdt_reset();
-  if (!cc3000.checkDHCP()) {
+  if (!cc3000.checkConnected()) {
     Serial.println(F("disconnected"));
     connectAp(1);
   }
@@ -610,6 +617,3 @@ void loop() {
     }
   }  
 }
-
-
-

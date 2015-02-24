@@ -190,7 +190,10 @@ int connectAp(byte trials) {
     Serial.println("Please upgrade the firmware");
   
   for (i = 0; i < trials; i++) {
-    status = WiFi.begin(ssid, passwd);
+    if (security)
+      status = WiFi.begin(ssid, passwd);
+    else
+      status = WiFi.begin(ssid);
     delay(5000);
     if (WiFi.status() == WL_CONNECTED) {
       break;

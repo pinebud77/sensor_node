@@ -348,18 +348,26 @@ byte postPage(char* thisData, int val[3])
   
   if(www.connected())
   {
+    char length_buffer[10];
     Serial.println(F("connected"));
     wdt_reset();
+    
+    Serial.println(thisData);
 
-    www.println(F("POST " INPUT_PAGE " HTTP/1.1"));
-    www.println(F("Host: " SERVER_NAME));
-    www.println(F("Connection: close"));
-    www.println(F("Content-Type: application/x-www-form-urlencoded"));
-    www.print(F("Content-Length: %u\r\n"));
-    www.println(strlen(thisData));
-    www.println();
-    www.println();
-
+    www.fastrprintln(F("POST " INPUT_PAGE " HTTP/1.1"));
+    www.fastrprint(F("Host: "));
+    www.fastrprintln(F(SERVER_NAME));
+    www.fastrprintln(F("Connection: close"));
+    www.fastrprint(F("Content-Type: application"));
+    www.fastrprintln(F("/x-www-form-urlencoded"));
+    www.fastrprint(F("Content-Length: "));
+    sprintf(length_buffer, "%u", strlen(thisData));
+    Serial.println(length_buffer);
+    www.fastrprintln(length_buffer);
+    www.fastrprintln(F(""));
+    
+    delay(50);
+    
     int dataLen = strlen(thisData);
     char * pos = thisData;
     do {
@@ -367,9 +375,10 @@ byte postPage(char* thisData, int val[3])
       dataLen -= written;
       pos += written;
       delay(10);
-    } 
+    }
     while (dataLen > 0);
-    www.println();
+    www.fastrprintln(F(""));
+
   }
   else
   {
@@ -388,10 +397,11 @@ byte postPage(char* thisData, int val[3])
   unsigned long lastRead = millis();
   valIndex = 0;
   while (www.connected() && (millis() - lastRead < IDLE_TIMEOUT_MS)) {
+    wdt_reset();
     while (www.available()) {
       char c = www.read();
       //block ?
-      //Serial.print(c);
+      Serial.print(c);
       rx_byte ++;
       lastRead = millis();
 

@@ -7,7 +7,7 @@
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
-#define ECHO_ON
+//#define ECHO_ON
 //#define PRINT_POST_RESULT
 
 /* sensor definitions and variables */
@@ -279,11 +279,11 @@ void setup() {
           if (Serial.readBytes(tempInput, 1)) {
             if (tempInput[0] == 'a') {
               getInput();
-              if (!connectAp(1)) {
+              if (!connectAp(2)) {
                 connected = 1;
+                break;
               }
               buildMsgHeader();
-              break;
             } 
             else if (tempInput[0] == 's') {
               scanNetworks();

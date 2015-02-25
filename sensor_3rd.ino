@@ -475,7 +475,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   wdt_reset();
   if (!cc3000.checkConnected()) {
     Serial.println(F("disconnected"));
-    connectAp(1);
+    while(1);
   }
   wdt_reset();
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);

@@ -494,7 +494,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
     connectAp(1);
   }
   wdt_reset();
-  sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
+  sprintf(postData, "&type=%d&value=%d&rssi=%d&first=%d", sensor_type, (int)(value*10.0), rssi, firstReport);
   ret = !postPage(msgHeader, postData, val);
   wdt_reset();
 

@@ -34,7 +34,7 @@ Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ
 #define INPUT_PAGE "/sensor/input/"
 
 char msgHeader[100];
-char postData[140];
+char postData[40];
 int firstReport = 1;
 
 int freeRam () {
@@ -334,7 +334,7 @@ enum parseStatus {
   EXIT_STATUS,
 };
 
-byte postPage(char* thisData, int val[3])
+byte postPage(char* thisData, char* thatData, int val[3])
 {
   byte ret, isSigned, valIndex, i;
   int * pVal;
@@ -368,7 +368,7 @@ byte postPage(char* thisData, int val[3])
     www.fastrprint(F("Content-Type: application"));
     www.fastrprintln(F("/x-www-form-urlencoded"));
     www.fastrprint(F("Content-Length: "));
-    sprintf(length_buffer, "%u", strlen(thisData));
+    sprintf(length_buffer, "%u", strlen(thisData) + strlen(thatData));
     www.fastrprintln(length_buffer);
     www.fastrprintln(F(""));
         
@@ -381,6 +381,17 @@ byte postPage(char* thisData, int val[3])
       delay(10);
     }
     while (dataLen > 0);
+    
+    dataLen = strlen(thatData);
+    pos = thatData;
+    do {
+      int written = www.write(pos, 10);
+      dataLen -= written;
+      pos += written;
+      delay(10);
+    }
+    while (dataLen > 0);
+    
     www.fastrprintln(F(""));
   }
   else
@@ -468,7 +479,7 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   }
   wdt_reset();
   sprintf(postData, "%s&type=%d&value=%d&rssi=%d&first=%d", msgHeader, sensor_type, (int)(value*10.0), rssi, firstReport);
-  ret = !postPage(postData, val);
+  ret = !postPage(msgHeader, postData, val);
   wdt_reset();
 
   if (ret) {

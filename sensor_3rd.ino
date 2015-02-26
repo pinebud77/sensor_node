@@ -1,4 +1,14 @@
 //#define CC3000_TINY_DRIVER
+//#define ECHO_ON
+//#define PRINT_POST_RESULT
+#define HAS_DUST_SENSOR
+
+#ifdef HAS_DUST_SENSOR
+#include <SharpDust.h>
+#define DUST_LED_PIN 2
+#define DUST_MEASURE_PIN 0
+#endif
+
 #include <Adafruit_cc3000.h>
 #include <ccspi.h>
 #include <SPI.h>
@@ -7,8 +17,11 @@
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
-//#define ECHO_ON
-//#define PRINT_POST_RESULT
+/* sensor type definition */
+#define SENSOR_THERMAL_ID 0
+#define SENSOR_HUMID_ID 1
+#define SENSOR_CO2_ID 2
+#define SENSOR_DUST_ID 3
 
 /* sensor definitions and variables */
 #define DHTPIN 7
@@ -28,7 +41,6 @@ Adafruit_CC3000 cc3000 = Adafruit_CC3000(ADAFRUIT_CC3000_CS, ADAFRUIT_CC3000_IRQ
 #define MAX_PASSWD 20
 
 /* web connection definitions and variables */
-#define IDLE_MEASURE_COUNT 10
 #define SERVER_NAME "galvanic-cirrus-841.appspot.com"
 #define SERVER_PORT 80
 #define INPUT_PAGE "/sensor/input/"
@@ -316,6 +328,10 @@ void setup() {
   
   /* initialize thermal/humidity sensor */
   dht.begin();
+  
+#ifdef HAS_DUST_SENSOR
+  SharpDust.begin(DUST_LED_PIN, DUST_MEASURE_PIN);
+#endif
 
   /* build post message prefix from MAC string */
   buildMsgHeader();
@@ -374,23 +390,26 @@ byte postPage(char* thisData, char* thatData, int val[3])
         
     int dataLen = strlen(thisData);
     char * pos = thisData;
+    int written;
     do {
-      int written = www.write(pos, 10);
+      written = www.write(pos, 10);
       dataLen -= written;
       pos += written;
       delay(10);
     }
-    while (dataLen > 0);
+    while (dataLen > 10);
+    www.write(pos, dataLen);
     
     dataLen = strlen(thatData);
     pos = thatData;
     do {
-      int written = www.write(pos, 10);
+      written = www.write(pos, 10);
       dataLen -= written;
       pos += written;
       delay(10);
     }
-    while (dataLen > 0);
+    while (dataLen > 10);
+    www.write(pos, dataLen);
     
     www.fastrprintln(F(""));
   }
@@ -402,7 +421,7 @@ byte postPage(char* thisData, char* thatData, int val[3])
   }
 
   Serial.print(F("posted : "));
-  Serial.print(strlen(thisData));
+  Serial.print(strlen(thisData) + strlen(thatData));
   Serial.println(F(" bytes"));
   wdt_reset();
 
@@ -495,8 +514,8 @@ int report_data(int sensor_type, float value, unsigned long * report_period, int
   *report_period = val[0];
   *high_threshold = val[1];
   *low_threshold = val[2];
-  if (*high_threshold == ERROR_VAL) *high_threshold = 1000;
-  if (*low_threshold == ERROR_VAL) *low_threshold = -1000;
+  if (*high_threshold == ERROR_VAL) *high_threshold = 10000;
+  if (*low_threshold == ERROR_VAL) *low_threshold = -10000;
 
   Serial.println(F("cfg"));
   Serial.println(sensor_type);
@@ -517,13 +536,12 @@ int outRange(float value, int low, int high)
 }
 
 void loop() {
-  int outRangeReported = 0;
   int lowTh1, highTh1, lowTh0, highTh0;
-  byte i, loop_count = IDLE_MEASURE_COUNT;
+#ifdef HAS_DUST_SENSOR
+  int lowTh2, highTh2;
+#endif
   unsigned long reportPeriod = 600;
-  unsigned long measurePeriod;
-  float temperature, humidity;
-  int value;
+  float value;
   unsigned long first, last, target;
 
   /* start Watch dog. */
@@ -538,90 +556,72 @@ void loop() {
     wdt_reset();
     dht.read();
     wdt_reset();
-    temperature = dht.readTemperature();
+    value = dht.readTemperature();
     wdt_reset();
-    humidity = dht.readHumidity();
-
-    wdt_reset();
-    loop_count = IDLE_MEASURE_COUNT;
     Serial.println();
     Serial.print(F("TS temper report:"));
     Serial.println(millis());
-    if (temperature != NAN && !report_data(0, temperature, &reportPeriod, &highTh0, &lowTh0)) {
+    Serial.println(value);
+    if (value != NAN && !report_data(SENSOR_THERMAL_ID, value, &reportPeriod, &highTh0, &lowTh0)) {
       Serial.println(F("reported"));
     } 
     else {
       Serial.println(F("adjust loop count"));
-      loop_count /= 2;
+      reportPeriod /= 2;
     }
     wdt_reset();
     Serial.print(F("TS delay 4000 : "));
     Serial.println(millis()); 
     delay(4000);
     wdt_reset();
+    value = dht.readHumidity();
+    wdt_reset();
     Serial.print(F("TS humid report:"));
     Serial.println(millis()); 
-    if (humidity != NAN && !report_data(1, humidity, &reportPeriod, &highTh1, &lowTh1)) {
+    Serial.println(value);
+    if (value != NAN && !report_data(SENSOR_HUMID_ID, value, &reportPeriod, &highTh1, &lowTh1)) {
       Serial.println(F("reported"));
     } 
     else {
       Serial.println(F("adjust loop count"));
-      loop_count /= 2;
+      reportPeriod /= 2;
     }
+#ifdef HAS_DUST_SENSOR
+    wdt_reset();
+    Serial.print(F("TS delay 4000 :"));
+    Serial.println(millis());
+    delay(4000);
+    wdt_reset();
+    value = SharpDust.measure() * 1000.0;
+    Serial.print(F("TS dust report:"));
+    Serial.println(millis());
+    Serial.println(value);
+    if (!report_data(SENSOR_DUST_ID, value, &reportPeriod, &highTh2, &lowTh2)) {
+      Serial.println(F("reported"));
+    } else {
+      Serial.println(F("adjust loop count"));
+      reportPeriod /= 2;
+    }
+#endif
     Serial.print(F("TS report finish:")); 
     Serial.println(millis()); 
     wdt_reset();
 
     if (reportPeriod < 120UL)
       reportPeriod = 120;
-    measurePeriod = reportPeriod / (unsigned long) IDLE_MEASURE_COUNT;
-    
-    if (measurePeriod == 0) measurePeriod = 1;
     
     first = millis() - first;
-      
-    for (i = 0; i < loop_count; i++) {
-      last = millis();
-      Serial.println();
-      Serial.print(F("TS:")); 
-      Serial.println(last);
-      Serial.println(F("value"));
-
+    
+    target = (reportPeriod*1000UL) - first;
+    do {
       wdt_reset();
-      dht.read();
-      wdt_reset();
-      temperature = dht.readTemperature();
-      wdt_reset();
-      humidity = dht.readHumidity();
-
-      Serial.println(temperature);
-      Serial.println(humidity);
-      wdt_reset();
-
-      if (!outRangeReported && outRange(temperature, lowTh0, highTh0) || outRange(humidity, lowTh1, highTh1)) {
-        outRangeReported = 1;
-        break;
-      }
-
-      if (outRangeReported && !outRange(temperature, lowTh0, highTh0) && !outRange(humidity, lowTh1, highTh1)) {
-        outRangeReported = 0;
-        break;
-      }
-      last = millis() - last;
-      if (last + first < (measurePeriod * 1000UL)){
-        target = (measurePeriod*1000UL) - last - first;
-        do {
-          wdt_reset();
-          target -= 4000UL;
-          delay(4000UL);
-          //Serial.println(target);
-        }
-        while (target >= 4000UL); 
-        wdt_reset();
-        delay(target);        
-      }
-      wdt_reset();
-      first = 0;
+      target -= 4000UL;
+      delay(4000UL);
     }
-  }  
+    while (target >= 4000UL); 
+    wdt_reset();
+    delay(target);        
+  }
+  wdt_reset();
+  first = 0;
 }
